@@ -1,81 +1,75 @@
 # EMBEDDED SYSTEM HARDWARE SPECIFICATION (AIoT NODE)
-* **Dự án:** Hệ thống tưới cây tự động thích ứng AIoT (ESP32-S3 + TinyML LSTM)
-* **Phân hệ:** Hardware & Firmware Core (Thành viên A)
-* **Phiên bản:** v1.1 | Milestone: Week 1 Deliverable
+* **Project:** Smart Adaptive Irrigation Node (ESP32-S3 + On-Device TinyML LSTM)
+* **Subsystem:** Hardware & Firmware Core (Member A)
+* **Document Version:** v1.1 | Milestone: Week 1 Deliverable
 
 ---
 
-## 1. Mức logic và miền điện áp (Logic Levels & Voltage Domains)
+## 1. Logic Levels & Voltage Domains
 
-Hệ thống phân tách thành hai miền điện áp độc lập:
+The system operates across two separate voltage domains decoupled via semiconductor switching:
 
-### 1.1. Miền điện áp điều khiển (Control Domain - 3.3V)
-* **Điện áp rail vi điều khiển ($V_{DD}$):** $3.3\text{V DC} \pm 5\%$ (hạ áp từ bus $5\text{V}$ qua module Buck MP1584EN).
-* **Mức logic CMOS 3.3V của ESP32-S3:**
-  * Điện áp ngõ vào mức thấp ($V_{IL}$): $-0.3\text{V} \le V_{IL} \le 0.825\text{V}$ (tối đa $0.25 \times V_{DD}$).
-  * Điện áp ngõ vào mức cao ($V_{IH}$): $2.475\text{V} \le V_{IH} \le 3.6\text{V}$ (tối thiểu $0.75 \times V_{DD}$).
-  * Điện áp ngõ ra mức thấp ($V_{OL}$): $\le 0.33\text{V}$ ($0.1 \times V_{DD}$) tại dòng tải danh định $I_{OL} = 10\text{mA}$.
-  * Điện áp ngõ ra mức cao ($V_{OH}$): $\ge 2.64\text{V}$ ($0.8 \times V_{DD}$) tại dòng tải danh định $I_{OH} = 10\text{mA}$.
-* **Giới hạn dòng GPIO:** Tối đa $20\text{mA}$ trên một chân; tổng dòng cấp/hút qua toàn bộ các chân I/O không vượt quá $150\text{mA}$.
+### 1.1. Control Domain (3.3V Rail)
+* **Nominal Supply Voltage ($V_{DD}$):** $3.3\text{V DC} \pm 5\%$ stepped down from the $5\text{V}$ bus via an MP1584EN buck converter[cite: 2].
+* **ESP32-S3 3.3V CMOS Logic Thresholds:**
+  * Input Low Voltage ($V_{IL}$): $-0.3\text{V} \le V_{IL} \le 0.825\text{V}$ (maximum $0.25 \times V_{DD}$).
+  * Input High Voltage ($V_{IH}$): $2.475\text{V} \le V_{IH} \le 3.6\text{V}$ (minimum $0.75 \times V_{DD}$).
+  * Output Low Voltage ($V_{OL}$): $\le 0.33\text{V}$ ($0.1 \times V_{DD}$) at nominal sink current $I_{OL} = 10\text{mA}$.
+  * Output High Voltage ($V_{OH}$): $\ge 2.64\text{V}$ ($0.8 \times V_{DD}$) at nominal source current $I_{OH} = 10\text{mA}$.
+* **Current Limitations:** Maximum $20\text{mA}$ per individual GPIO pin; total cumulative source/sink current across all I/O pins must not exceed $150\text{mA}$.
 
-### 1.2. Miền điện áp động lực (Power/Actuator Domain - 5.0V)
-* **Điện áp nguồn bơm ($V_{BUS}$):** $5.0\text{V DC} \pm 5\%$ cấp trực tiếp từ củ sạc USB $5\text{V}-2\text{A}$ (tách riêng khỏi rail $3.3\text{V}$ của MCU để chống sụt áp).
-* **Cơ chế kích đóng ngắt:** Kích mở chân Gate của N-MOSFET (LR7843 / AO3400) trực tiếp từ mức logic $3.3\text{V}$ của ESP32 ($V_{GS(th)} \le 2.0\text{V}$, mở bão hòa hoàn toàn ở $3.3\text{V}$). Điện trở xả $10\text{k}\Omega$ từ Gate xuống GND chống kích mở trôi khi khởi động.
-
----
-
-## 2. Đặc tả khối biến đổi tương tự sang số (ADC Specification)
-
-Sử dụng để đo độ ẩm đất từ cảm biến điện dung Capacitive Soil Moisture Sensor v1.2.
-
-* **Kênh ADC phần cứng:** Bắt buộc sử dụng **ADC1_CH3 (GPIO 4)**. Không dùng các chân thuộc ADC2 vì bị vô hiệu hóa khi bật Wi-Fi/MQTT.
-* **Độ phân giải (Resolution):** 12-bit ($0 - 4095$ mức lượng tử hóa).
-* **Mức suy hao cấu hình (Attenuation):** Cấu hình `ADC_ATTEN_DB_12` (dải điện áp đo hiệu dụng: $0\text{V} - 3.1\text{V}$), bao phủ trọn vẹn dải ngõ ra của cảm biến đất ($1.2\text{V}$ lúc bão hòa nước đến $2.8\text{V}$ khi đất khô kiệt).
-* **Hiệu chuẩn ADC (Calibration):** Sử dụng hàm `esp_adc_cal_raw_to_voltage()` kết hợp dữ liệu hiệu chuẩn lưu trong eFuse của chip để khắc phục vùng phi tuyến tính ở hai đầu dải đo.
-* **Cơ chế Power Gating:** Chân $V_{CC}$ của cảm biến đất được nối vào **GPIO 5**. GPIO 5 chỉ kéo lên mức HIGH trong đúng $20\text{ms}$ để cấp điện đo ADC, đo xong kéo về LOW ngay để triệt tiêu hiện tượng ăn mòn điện phân trên bản mạch.
-* **Lọc nhiễu tín hiệu:** Lấy mẫu liên tiếp $32$ lần trong khoảng thời gian $10\text{ms}$, áp dụng bộ lọc trung vị (Median Filter) loại bỏ mẫu dị biệt, sau đó tính trung bình để ra giá trị điện áp chuẩn trước khi ánh xạ sang $\%$ độ ẩm đất.
+### 1.2. Actuator / Power Domain (5.0V Rail)
+* **Actuator Supply Voltage ($V_{BUS}$):** $5.0\text{V DC} \pm 5\%$ sourced directly from an external $5\text{V}/2\text{A}$ USB adapter (bypassing the MCU buck converter to avoid brownout transients).
+* **Gate Drive Configuration:** Direct $3.3\text{V}$ logic switching of a logic-level N-MOSFET (e.g., LR7843, AO3400, or IRLZ44N)[cite: 2]. Selected MOSFETs feature a gate threshold voltage $V_{GS(th)} \le 2.0\text{V}$, ensuring full channel saturation at $3.3\text{V}$.
+* **Gate Pull-Down:** A $10\text{ k}\Omega$ resistor connected from Gate to GND to prevent floating states and spurious conduction during MCU boot/reset[cite: 2].
 
 ---
 
-## 3. Chuẩn giao tiếp phần cứng (Bus Protocols & Interfaces)
+## 2. Analog-to-Digital Converter (ADC) Specification
 
-* **Giao thức I2C (Inter-Integrated Circuit):**
-  * Chân giao tiếp: **SDA** (GPIO 8), **SCL** (GPIO 9).
-  * Tốc độ truyền (Bus Speed): Chuẩn Standard-mode $100\text{ kHz}$ (hạn chế suy hao khi kéo dây cảm biến dài $20 - 30\text{cm}$).
-  * Điện trở kéo lên (Pull-up): Sử dụng 2 điện trở ngoài $4.7\text{k}\Omega$ kéo lên rail $3.3\text{V}$.
-  * Thiết bị trên bus:
-    * AHT20 (Nhiệt độ & Độ ẩm không khí): Địa chỉ 7-bit cố định `0x38`.
-    * BH1750 (Cường độ ánh sáng Lux): Địa chỉ 7-bit `0x23` (chân ADDR nối GND).
-* **Điều biến độ rộng xung PWM (Bơm nước):**
-  * Chân phát xung: **GPIO 6**.
-  * Cấu hình phần cứng: Module LEDC kênh 0, Timer 0.
-  * Tần số sóng mang (Carrier Frequency): $10\text{ kHz}$ (loại bỏ tiếng rít tần số âm thanh của cuộn dây động cơ).
-  * Độ phân giải Duty Cycle: 10-bit ($0 - 1023$ mức), điều chỉnh lưu lượng tưới nhỏ giọt mịn từ $30\%$ đến $80\%$.
-* **Giao tiếp Digital Input / Output:**
-  * Phao từ mực nước (**GPIO 11**): Cấu hình ngõ vào có trở kéo nội `GPIO_PULLUP_ENABLE` ($\approx 45\text{k}\Omega$). Phao nối chân còn lại xuống GND (Logic 0 = Đầy nước, Logic 1 = Cạn nước).
-  * LED trạng thái (**GPIO 7** - Xanh, **GPIO 15** - Đỏ): Push-pull ngõ ra, qua trở hạn dòng $330\Omega$ ($I_F \approx 4.5\text{mA}$).
-  * Còi báo Active Buzzer (**GPIO 16**): Push-pull kích còi phát âm báo $2.4\text{ kHz}$ khi có sự cố.
+Dedicated to acquiring analog moisture data from the Capacitive Soil Moisture Sensor v1.2[cite: 2].
+
+* **Hardware Channel:** Assigned strictly to **ADC1_CH3 (GPIO 4)** to avoid co-existence lockouts with the ESP32-S3 Wi-Fi/BLE subsystem[cite: 2].
+* **Resolution:** 12-bit ($0 - 4095$ quantization levels).
+* **Attenuation Setting:** Configured to `ADC_ATTEN_DB_12` (effective measurable range: $0\text{V} - 3.1\text{V}$), fully spanning the sensor output profile of $1.2\text{V}$ (saturated wet) to $2.8\text{V}$ (bone dry)[cite: 2].
+* **Hardware Calibration:** Utilizes factory characterization data stored in chip eFuse via `esp_adc_cal_raw_to_voltage()` to linearize readings near rail extremes.
+* **Power Gating Mechanism:**
+  * Sensor $V_{CC}$ is powered from **GPIO 5**[cite: 2].
+  * Driven HIGH for only $20\text{ms}$ during active sampling[cite: 2], then pulled LOW immediately after ADC acquisition to prevent continuous standby draw and eliminate galvanic corrosion on the sensor pads[cite: 2].
+* **Signal Conditioning:** Burst sampling with $N = 32$ iterations across a $10\text{ms}$ window; filtered using a 1D median filter to discard impulse noise, followed by a moving average filter before mapping to soil moisture percentage.
 
 ---
 
-## 4. Chu kỳ lấy mẫu và định thời hệ thống (Sampling Schedules & Timing)
+## 3. Bus Protocols & Hardware Interfaces
 
-### 4.1. Chu kỳ vận hành hệ thống
-* **Chế độ Hoạt động bình thường (Normal Mode):**
-  * Chu kỳ thức: **15 phút / lần**.
-  * Trình tự thực thi: Đánh thức từ Light-Sleep $\rightarrow$ Bật GPIO 5 ($20\text{ms}$) $\rightarrow$ Lấy mẫu ADC đất $\rightarrow$ Đọc I2C AHT20 & BH1750 $\rightarrow$ Tắt GPIO 5 $\rightarrow$ Đưa mẫu vào Ring Buffer RAM $\rightarrow$ Chạy suy luận mạng LSTM $\rightarrow$ Kích hoạt bơm (nếu AI yêu cầu) $\rightarrow$ Quay lại Light-Sleep.
-  * Tổng thời gian thức (Active Window): $\approx 80\text{ms}$ (nếu không kích hoạt bơm).
-* **Chế độ Ban đêm (Night Mode):**
-  * Tự kích hoạt khi BH1750 đo ánh sáng $< 10\text{ Lux}$ liên tiếp trong 30 phút.
-  * Chu kỳ lấy mẫu dãn ra **60 phút / lần** để tiết kiệm điện và giảm hao mòn cơ khí.
-* **Chế độ Vắng nhà (Vacation Mode):**
-  * Chu kỳ lấy mẫu cố định **30 phút / lần**, ưu tiên tưới vào sáng sớm hoặc chiều mát dựa theo dự báo của mô hình AI.
+| Protocol / Interface | ESP32-S3 Pin | Connected Peripheral | Technical Parameters & Settings |
+| :--- | :--- | :--- | :--- |
+| **I2C Bus** | **SDA:** GPIO 8<br>**SCL:** GPIO 9[cite: 2] | - AHT20 (Ambient Temp & Humidity)[cite: 2]<br>- BH1750 (Irradiance / Lux)[cite: 2]<br>- *(Optional)* SSD1306 OLED | - Standard-mode ($100\text{ kHz}$) to prevent signal degradation over $20 - 30\text{cm}$ sensor leads.<br>- External $4.7\text{ k}\Omega$ pull-up resistors to the $3.3\text{V}$ rail[cite: 2].<br>- 7-bit Hardware Addresses:<br>  + AHT20: `0x38`[cite: 2]<br>  + BH1750: `0x23` (ADDR grounded)[cite: 2]<br>  + SSD1306: `0x3C` |
+| **ADC1 Channel** | **Signal:** GPIO 4[cite: 2] | Capacitive Soil Sensor v1.2[cite: 2] | Analog input $0 - 3.0\text{V}$, high-impedance mode, decoupled with a $100\text{nF}$ ceramic capacitor. |
+| **GPIO Output** | **Power Gate:** GPIO 5[cite: 2] | Soil Sensor $V_{CC}$[cite: 2] | Digital Push-Pull, sourcing up to $12\text{mA}$ during the active $20\text{ms}$ window[cite: 2]. |
+| **GPIO Input** | **Float Switch:** GPIO 11[cite: 2] | Vertical PP Float Switch[cite: 2] | Internal pull-up enabled (`GPIO_PULLUP_ENABLE` $\approx 45\text{ k}\Omega$)[cite: 2]. Switch to GND:<br>- Full: Circuit closed to GND (Logic 0)[cite: 2].<br>- Empty: Circuit open, pulled to $3.3\text{V}$ (Logic 1) $\rightarrow$ Trigger pump lockout[cite: 2]. |
+| **PWM (LEDC)** | **Pump PWM:** GPIO 6 | N-MOSFET Gate Driver Module | LEDC Channel 0, Timer 0:<br>- Carrier Frequency: $10\text{ kHz}$ (eliminates acoustic coil whine).<br>- Duty Cycle Resolution: 10-bit ($0 - 1023$ steps), providing micro-drip flow regulation between $30\%$ and $80\%$. |
+| **GPIO Output** | **Status LEDs:**<br>- GPIO 7 (Green)<br>- GPIO 15 (Red) | 5mm Status Indicator LEDs | Push-pull outputs via $330\ \Omega$ series resistors ($I_F \approx 4.5\text{mA}$):<br>- Green: $1\text{Hz}$ blink during normal telemetry.<br>- Red: Solid state on reservoir empty or sensor disconnect. |
+| **GPIO Output** | **Buzzer:** GPIO 16 | 5V Active Buzzer Module | Push-pull driving an audible $2.4\text{ kHz}$ intermittent alarm on failsafe states. |
 
-### 4.2. Vòng lặp an toàn khi tưới (Watering Safety & Interlocking)
-* **Chu kỳ quét phao nước:** Quét mức logic GPIO 11 liên tục mỗi **$50\text{ms}$** trong suốt thời gian bơm chạy. Nếu phát hiện cạn nước, ngắt PWM về $0\%$ ngay lập tức.
-* **Khóa thời gian bơm tối đa (Watchdog):** Bơm không được phép chạy liên tục quá **60 giây** trong một lần tưới nhằm ngăn ngập úng nếu tuột ống dẫn.
-* **Thời gian thẩm thấu (Soaking Delay):** Sau khi dừng bơm, khóa đọc cảm biến đất trong **5 phút** để nước ngấm đều vào rễ trước khi ghi nhận giá trị ẩm mới.
+---
 
-### 4.3. Cấu trúc dữ liệu đầu vào cho AI (LSTM Input Tensor)
-* Mỗi giờ hệ thống tổng hợp 1 vector dữ liệu gồm 4 thuộc tính đã chuẩn hóa: $[T_{\text{air}},\ RH_{\text{air}},\ \text{Lux},\ \text{Moisture}_{\text{soil}}]$.
-* Cửa sổ trượt (Time Window): $24$ bước thời gian (24 giờ gần nhất), lưu trữ trong mảng bộ nhớ đệm `float input_buffer[24][4]` trên RAM để nạp vào Tensor Arena khi gọi hàm `invoke()`.
+## 4. Sampling Schedules & Timing Architecture
+### 4.1. Operating Modes & Sampling Intervals
+* **Normal Active Mode:**
+  * Wake-up Interval: **Every 15 minutes**.
+  * Sequence: Wake from Light-Sleep $\rightarrow$ Assert GPIO 5 HIGH ($20\text{ms}$ settling)[cite: 2] $\rightarrow$ Sample Soil ADC $\rightarrow$ Poll I2C sensors (AHT20 & BH1750)[cite: 2] $\rightarrow$ De-assert GPIO 5[cite: 2] $\rightarrow$ Push vector to RAM Ring Buffer $\rightarrow$ Run TinyML LSTM inference $\rightarrow$ Activate PWM pumping (if commanded by AI) $\rightarrow$ Return to Light-Sleep.
+  * Active Time Window: $\approx 80\text{ms}$ (excluding pumping duration).
+* **Night Mode:**
+  * Auto-engaged when BH1750 reads $< 10\text{ Lux}$ continuously for 30 minutes.
+  * Sampling Interval: **Every 60 minutes** (transpiration and soil dry-down are minimal without sunlight).
+* **Vacation / Away Mode:**
+  * Fixed **30-minute** interval with AI prioritizing early morning/late evening watering to maximize moisture retention and sustain the 5L reservoir for 20+ days.
+
+### 4.2. In-Watering Safety Interlocking
+* **Float Switch Polling Rate:** Polled every **$50\text{ms}$** while the pump is active. If water depletion is detected, the PWM output is immediately forced to $0\%$ within $100\text{ms}$.
+* **Max Pumping Watchdog:** Hard cut-off limit of **60 seconds** continuous run per event to prevent waterlogging in case of line detachment.
+* **Moisture Settling Delay (Soaking Delay):** Soil moisture ADC readings are suppressed for **5 minutes** after pump shut-off to allow root-zone percolation and prevent localized bias.
+
+### 4.3. LSTM Input Tensor Formulation
+* Every hour, the system generates one consolidated 4-variable feature vector:
